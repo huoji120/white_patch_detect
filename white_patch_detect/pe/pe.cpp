@@ -243,6 +243,10 @@ PIMAGE_SECTION_HEADER pe64::create_section(std::string name, uint32_t size,
     return this->get_section(name);
 }
 uint64_t pe64::get_image_base() {
+    if (this->is_32_pe()) {
+        PIMAGE_NT_HEADERS32 ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS32>(this->get_nt());
+        return ntHeaders->OptionalHeader.ImageBase;
+    }
     PIMAGE_NT_HEADERS ntHeaders = this->get_nt();
     return ntHeaders->OptionalHeader.ImageBase;
 }

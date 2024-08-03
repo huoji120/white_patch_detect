@@ -37,16 +37,15 @@ auto calculateEntropy(void* data, size_t size) -> double {
 
     return entropy;
 }
-auto buildFunctionMaps(pe64* pe)
-    -> std::vector<std::shared_ptr<_functionDetail>> {
+//@todo: 有个bug,32位这里获取的地址不准，管他呢，这个pe64本来就不是为了32位写的
+auto buildFunctionMaps(pe64* pe) -> std::vector<std::shared_ptr<_functionDetail>> {
     std::vector<std::shared_ptr<_functionDetail>> functionList;
     cs_insn* insn = nullptr;
     size_t disasmCount = 0;
     csh capstone_handle;
 
     do {
-        if (cs_open(CS_ARCH_X86, pe->is_32_pe() ? CS_MODE_32 : CS_MODE_64,
-                    &capstone_handle) != CS_ERR_OK) {
+        if (cs_open(CS_ARCH_X86, pe->is_32_pe() ? CS_MODE_32 : CS_MODE_64, &capstone_handle) != CS_ERR_OK) {
             break;
         }
         cs_option(capstone_handle, CS_OPT_DETAIL, CS_OPT_ON);
@@ -58,8 +57,8 @@ auto buildFunctionMaps(pe64* pe)
 
         disasmCount =
             cs_disasm(capstone_handle,
-                      reinterpret_cast<const uint8_t*>(codeAddressInMemory),
-                      textSection->Misc.VirtualSize, 0, 0, &insn);
+                reinterpret_cast<const uint8_t*>(codeAddressInMemory),
+                textSection->Misc.VirtualSize, 0, 0, &insn);
         if (disasmCount == 0) {
             break;
         }
@@ -80,36 +79,32 @@ auto buildFunctionMaps(pe64* pe)
             backTrackCodeList.push_back(codeMnemonic);
             if ((codeMnemonic != "int3" && codeMnemonic != "nop") &&
                 ((backTrackCodeList.size() > 2) &&
-                 (backTrackCodeList[0] == "int3" ||
-                  backTrackCodeList[0] == "nop") &&
-                 (backTrackCodeList[1] == "int3" ||
-                  backTrackCodeList[1] == "nop") &&
-                 (backTrackCodeList[2] == "int3" ||
-                  backTrackCodeList[2] == "nop")) &&
+                    (backTrackCodeList[0] == "int3" ||
+                        backTrackCodeList[0] == "nop") &&
+                    (backTrackCodeList[1] == "int3" ||
+                        backTrackCodeList[1] == "nop") &&
+                    (backTrackCodeList[2] == "int3" ||
+                        backTrackCodeList[2] == "nop")) &&
                 isEnterFunction == false) {
-                // printf("进入函数 开始地址: %llx\n", codeAddressInMemory +
-                // offset); printf("address: 0x%llx | size: %d code: %s %s \n",
-                //         code.address, code.size, code.mnemonic, code.op_str);
+                // printf("进入函数 开始地址: %llx\n", codeAddressInMemory + offset);
+                 // printf("address: 0x%llx | size: %d code: %s %s \n",
+                 //         code.address, code.size, code.mnemonic, code.op_str);
                 currentFuncAddress = codeAddressInMemory + offset;
                 isEnterFunction = true;
                 backTrackCodeList.clear();
-            } else if ((codeMnemonic == "int3" || codeMnemonic == "nop") &&
-                       ((backTrackCodeList.size() > 2) &&
-                        (backTrackCodeList[0] != "int3" &&
-                         backTrackCodeList[0] != "nop")) &&
-                       isEnterFunction) {
-                // printf("退出函数 结束地址: %llx 当前大小: %d \n",
-                // codeAddressInMemory + code.address, currentFuncAddress -
-                // codeAddressInMemory);
+            }
+            else if ((codeMnemonic == "int3" || codeMnemonic == "nop") &&
+                ((backTrackCodeList.size() > 2) &&
+                    (backTrackCodeList[0] != "int3" &&
+                        backTrackCodeList[0] != "nop")) &&
+                isEnterFunction) {
+                //printf("退出函数 结束地址: %llx 当前大小: %d \n", codeAddressInMemory + code.address, currentFuncAddress - codeAddressInMemory);
 
-                auto func = _functionDetail{
-                    .start_address = currentFuncAddress,
-                    .end_address = codeAddressInMemory + code.address,
-                    .size = (codeAddressInMemory + code.address) -
-                            currentFuncAddress};
+                auto func = _functionDetail{ .start_address = currentFuncAddress,
+                                .end_address = codeAddressInMemory + code.address,
+                                .size = (codeAddressInMemory + code.address) - currentFuncAddress };
                 functionList.push_back(std::make_shared<_functionDetail>(func));
-                // printf("退出函数 结束地址: %llx 当前大小: %d \n",
-                // func.end_address, func.size);
+                //printf("退出函数 结束地址: %llx 当前大小: %d \n", func.end_address, func.size);
 
                 isFirst = false;
                 isEnterFunction = false;
@@ -125,7 +120,7 @@ auto buildFunctionMaps(pe64* pe)
                     .start_address = static_cast<uint64_t>(codeAddressInMemory),
                     .end_address = static_cast<uint64_t>(
                         codeAddressInMemory + textSection->Misc.VirtualSize),
-                    .size = textSection->Misc.VirtualSize}));
+                    .size = textSection->Misc.VirtualSize }));
         }
     } while (false);
     cs_free(insn, disasmCount);
@@ -134,47 +129,48 @@ auto buildFunctionMaps(pe64* pe)
     }
     return functionList;
 }
-class super_huoji_tracker {
-   public:
+class super_huoji_tracker
+{
+public:
     auto print_asm(const cs_insn* code) -> void;
-    super_huoji_tracker(uint64_t startAddr, size_t sizeOfCode,
-                        uint64_t current_function_rva, bool is_32_pe);
+    super_huoji_tracker(uint64_t startAddr, size_t sizeOfCode, uint64_t current_function_rva, bool is_32_pe);
     ~super_huoji_tracker();
     auto track_gs_access_64_i() -> void;
     auto track_gs_access_32_i() -> void;
     auto track_gs_access() -> void;
 
-   private:
+private:
     bool is_x32 = false;
     std::vector<std::shared_ptr<cs_insn>> ins_list;
     cs_insn* insn = nullptr;
     size_t disasmCount = 0;
     csh capstone_handle_i;
     uint64_t ins_ip, ins_ip_address, current_function_rva;
-    auto get_next_ins() -> std::shared_ptr<cs_insn>;
-    template <typename T, typename B>
-    auto match_code(
-        T match_fn, B process_fn, std::optional<uint32_t> num_operands,
-        std::vector<std::optional<x86_op_type>> operand_types) -> bool;
+    auto get_next_ins()->std::shared_ptr<cs_insn>;
+    template<typename T, typename B>
+    auto match_code(T match_fn, B process_fn, std::optional<uint32_t> num_operands, std::vector<std::optional<x86_op_type>> operand_types) -> bool;
 };
 auto super_huoji_tracker::print_asm(const cs_insn* code) -> void {
     printf("0x%08X :\t\t%s\t%s\t\n", code->address, code->mnemonic,
-           code->op_str);
+        code->op_str);
+    for (int x = 0; x < code->size; x++) {
+        printf("%02X ", code->bytes[x]);
+    }
 }
-super_huoji_tracker::super_huoji_tracker(uint64_t startAddr, size_t sizeOfCode,
-                                         uint64_t current_function_rva,
-                                         bool is_32_pe) {
-    if (cs_open(CS_ARCH_X86, is_32_pe ? CS_MODE_32 : CS_MODE_64,
-                &capstone_handle_i) != CS_ERR_OK) {
+super_huoji_tracker::super_huoji_tracker(uint64_t startAddr, size_t sizeOfCode, uint64_t current_function_rva, bool is_32_pe)
+{
+    if (cs_open(CS_ARCH_X86, is_32_pe ? CS_MODE_32 : CS_MODE_64, &capstone_handle_i) != CS_ERR_OK) {
         __debugbreak();
     }
     cs_option(capstone_handle_i, CS_OPT_DETAIL, CS_OPT_ON);
     cs_option(capstone_handle_i, CS_OPT_SKIPDATA, CS_OPT_ON);
     is_x32 = is_32_pe;
-    do {
-        disasmCount = cs_disasm(capstone_handle_i,
-                                reinterpret_cast<const uint8_t*>(startAddr),
-                                sizeOfCode, 0, 0, &insn);
+    do
+    {
+        disasmCount =
+            cs_disasm(capstone_handle_i,
+                reinterpret_cast<const uint8_t*>(startAddr),
+                sizeOfCode, 0, 0, &insn);
         if (disasmCount == 0) {
             break;
         }
@@ -186,7 +182,8 @@ super_huoji_tracker::super_huoji_tracker(uint64_t startAddr, size_t sizeOfCode,
     this->current_function_rva = current_function_rva;
 }
 
-super_huoji_tracker::~super_huoji_tracker() {
+super_huoji_tracker::~super_huoji_tracker()
+{
     if (insn) {
         cs_free(insn, disasmCount);
     }
@@ -202,7 +199,8 @@ auto super_huoji_tracker::get_next_ins() -> std::shared_ptr<cs_insn> {
 }
 template <typename T, typename B>
 auto super_huoji_tracker::match_code(
-    T match_fn, B process_fn, std::optional<uint32_t> num_operands,
+    T match_fn, B process_fn,
+    std::optional<uint32_t> num_operands,
     std::vector<std::optional<x86_op_type>> operand_types) -> bool {
     while (auto instruction = get_next_ins()) {
         if (&process_fn != nullptr) {
@@ -226,34 +224,28 @@ auto super_huoji_tracker::match_code(
     return false;
 }
 auto super_huoji_tracker::track_gs_access_64_i() -> void {
-    // const auto matched_gs_access = match_code([&](cs_insn* instruction) {},
-    // [&](cs_insn* instruction) {}, {}, {});
-    const auto isGsRegAccess = match_code(
-        [&](cs_insn* instruction) {
-            //@todo: other access gs reg code...
-            if (instruction->id != X86_INS_MOV &&
-                instruction->id != X86_INS_MOVZX) {
-                return false;
-            }
+    //const auto matched_gs_access = match_code([&](cs_insn* instruction) {}, [&](cs_insn* instruction) {}, {}, {});
+    const auto isGsRegAccess = match_code([&](cs_insn* instruction) {
+        //@todo: other access gs reg code...
+        if (instruction->id != X86_INS_MOV && instruction->id != X86_INS_MOVZX) {
+            return false;
+        }
 
-            if (instruction->detail->x86.operands[1].mem.segment !=
-                X86_REG_GS) {
-                return false;
-            }
-            /*
-                gs:[0x30] TEB
-                gs:[0x40] Pid
-                gs:[0x48] Tid
-                gs:[0x60] PEB
-                gs:[0x68] LastError
-            */
-            if (instruction->detail->x86.operands[1].mem.disp != 0x30 &&
-                instruction->detail->x86.operands[1].mem.disp != 0x60) {
-                return false;
-            }
-            return true;
-        },
-        [&](cs_insn* instruction) {}, {}, {});
+        if (instruction->detail->x86.operands[1].mem.segment != X86_REG_GS) {
+            return false;
+        }
+        /*
+            gs:[0x30] TEB
+            gs:[0x40] Pid
+            gs:[0x48] Tid
+            gs:[0x60] PEB
+            gs:[0x68] LastError
+        */
+        if (instruction->detail->x86.operands[1].mem.disp != 0x30 && instruction->detail->x86.operands[1].mem.disp != 0x60) {
+            return false;
+        }
+        return true;
+        }, [&](cs_insn* instruction) {}, {}, {});
     if (isGsRegAccess == false) {
         return;
     }
@@ -262,82 +254,71 @@ auto super_huoji_tracker::track_gs_access_64_i() -> void {
     x86_reg ldrAccessReg;
     bool isPebAccess = false;
     if (currentIns->detail->x86.operands[1].mem.disp == 0x30) {
-        // 从TEB访问的PEB->ldr
-        isPebAccess = match_code(
-            [&](cs_insn* instruction) {
-                //@todo: other access gs reg code...
-                if (instruction->id != X86_INS_MOV &&
-                    instruction->id != X86_INS_MOVZX) {
-                    return false;
-                }
+        //从TEB访问的PEB->ldr
+        isPebAccess = match_code([&](cs_insn* instruction) {
+            //@todo: other access gs reg code...
+            if (instruction->id != X86_INS_MOV && instruction->id != X86_INS_MOVZX) {
+                return false;
+            }
 
-                if (instruction->detail->x86.operands[1].mem.base !=
-                    gsAccessReg) {
-                    return false;
-                }
-                if (instruction->detail->x86.operands[1].mem.disp != 0x60) {
-                    return false;
-                }
-                ldrAccessReg = instruction->detail->x86.operands[0].reg;
-                return true;
-            },
-            [&](cs_insn* instruction) {}, {}, {});
-    } else {
-        // 直接访问的GS->peb
+            if (instruction->detail->x86.operands[1].mem.base != gsAccessReg) {
+                return false;
+            }
+            if (instruction->detail->x86.operands[1].mem.disp != 0x60) {
+                return false;
+            }
+            ldrAccessReg = instruction->detail->x86.operands[0].reg;
+            return true;
+            }, [&](cs_insn* instruction) {}, {}, {});
+    }
+    else {
+        //直接访问的GS->peb
         isPebAccess = true;
         ldrAccessReg = gsAccessReg;
     }
     if (isPebAccess == false) {
         return;
     }
-    // 访问了PEB的ldr
-    const auto isPebLdrAccess = match_code(
-        [&](cs_insn* instruction) {
-            //@todo: other access gs reg code...
-            if (instruction->id != X86_INS_MOV &&
-                instruction->id != X86_INS_MOVZX) {
-                return false;
-            }
-            if (instruction->detail->x86.operands[1].mem.base != ldrAccessReg) {
-                return false;
-            }
-            if (instruction->detail->x86.operands[1].mem.disp != 0x18) {
-                return false;
-            }
-            return true;
-        },
-        [&](cs_insn* instruction) {}, {}, {});
+    //访问了PEB的ldr
+    const auto isPebLdrAccess = match_code([&](cs_insn* instruction) {
+        //@todo: other access gs reg code...
+        if (instruction->id != X86_INS_MOV && instruction->id != X86_INS_MOVZX) {
+            return false;
+        }
+        if (instruction->detail->x86.operands[1].mem.base != ldrAccessReg) {
+            return false;
+        }
+        if (instruction->detail->x86.operands[1].mem.disp != 0x18) {
+            return false;
+        }
+        return true;
+        }, [&](cs_insn* instruction) {}, {}, {});
     if (isPebLdrAccess == false) {
         return;
     }
-    printf(
-        "malware function detected at address: 0x%llx by gs access peb->ldr \n",
-        this->current_function_rva);
+    //rva不准，因为函数识别不准
+    printf("malware function detected at address:0x%llx rva:0x%llx by gs access peb->ldr \n", this->current_function_rva + currentIns->address, this->current_function_rva);
     this->print_asm(currentIns);
 }
 auto super_huoji_tracker::track_gs_access_32_i() -> void {
     bool isMalwareDetect = false;
     cs_insn* currentIns;
-    do {
-        const auto isFsRegAccess = match_code(
-            [&](cs_insn* instruction) {
-                if (instruction->id != X86_INS_MOV &&
-                    instruction->id != X86_INS_MOVZX) {
-                    return false;
-                }
+    do
+    {
+        const auto isFsRegAccess = match_code([&](cs_insn* instruction) {
+            if (instruction->id != X86_INS_MOV && instruction->id != X86_INS_MOVZX) {
+                return false;
+            }
 
-                if (instruction->detail->x86.operands[1].mem.segment !=
-                    X86_REG_FS) {
-                    return false;
-                }
-                // todo: SEH(FS:[00])
-                if (instruction->detail->x86.operands[1].mem.disp != 0x30 &&
-                    instruction->detail->x86.operands[1].mem.disp != 0x18) {
-                    return false;
-                }
-                return true;
-            },
-            [&](cs_insn* instruction) {}, {}, {});
+            if (instruction->detail->x86.operands[1].mem.segment != X86_REG_FS) {
+                return false;
+            }
+            // todo: SEH(FS:[00])
+            if (instruction->detail->x86.operands[1].mem.disp != 0x30 && instruction->detail->x86.operands[1].mem.disp != 0x18) {
+                return false;
+            }
+            return true;
+            }, [&](cs_insn* instruction) {}, {}, {});
         if (isFsRegAccess == false) {
             return;
         }
@@ -356,32 +337,30 @@ auto super_huoji_tracker::track_gs_access_32_i() -> void {
                 cmp word ptr [ eax ], 0x5a4d // "MZ"
                 jne find_kernel32_base // 循 环遍 历 ，找到 则 返回 eax
             */
-            const auto isTebAccess = match_code(
-                [&](cs_insn* instruction) {
-                    if (instruction->id != X86_INS_MOV &&
-                        instruction->id != X86_INS_MOVZX) {
-                        return false;
-                    }
+            const auto isTebAccess = match_code([&](cs_insn* instruction) {
+                if (instruction->id != X86_INS_MOV && instruction->id != X86_INS_MOVZX) {
+                    return false;
+                }
 
-                    if (instruction->detail->x86.operands[1].mem.base !=
-                        fsAccessReg) {
-                        return false;
-                    }
-                    if (instruction->detail->x86.operands[1].mem.disp != 0x4) {
-                        return false;
-                    }
-                    return true;
-                },
-                [&](cs_insn* instruction) {}, {}, {});
-
+                if (instruction->detail->x86.operands[1].mem.base != fsAccessReg) {
+                    return false;
+                }
+                if (instruction->detail->x86.operands[1].mem.disp != 0x4) {
+                    return false;
+                }
+                return true;
+                }, [&](cs_insn* instruction) {}, {}, {});
+           
             if (isTebAccess) {
                 isMalwareDetect = true;
                 break;
-            } else {
+            }
+            else {
                 // todo , teb获取PEB然后访问ldr...
                 DebugBreak();
             }
-        } else if (currentIns->detail->x86.operands[1].mem.disp == 0x30) {
+        }
+        else if (currentIns->detail->x86.operands[1].mem.disp == 0x30) {
             /*
                 mov eax,fs:[30h]     ;得到PEB结构地址
                 mov eax,[eax + 0ch]  ;得到PEB_LDR_DATA结构地址
@@ -391,84 +370,70 @@ auto super_huoji_tracker::track_gs_access_32_i() -> void {
                 mov eax,[eax];win7要加
                 mov edx,[eax + 8h]   ;得到BaseAddress，既Kernel32.dll基址
             */
-            const auto isPebLdrAccess = match_code(
-                [&](cs_insn* instruction) {
-                    if (instruction->id != X86_INS_MOV &&
-                        instruction->id != X86_INS_MOVZX) {
-                        return false;
-                    }
+            const auto isPebLdrAccess = match_code([&](cs_insn* instruction) {
+                if (instruction->id != X86_INS_MOV && instruction->id != X86_INS_MOVZX) {
+                    return false;
+                }
 
-                    if (instruction->detail->x86.operands[1].mem.base !=
-                        fsAccessReg) {
-                        return false;
-                    }
-                    if (instruction->detail->x86.operands[1].mem.disp != 0xc) {
-                        return false;
-                    }
-                    return true;
-                },
-                [&](cs_insn* instruction) {}, {}, {});
+                if (instruction->detail->x86.operands[1].mem.base != fsAccessReg) {
+                    return false;
+                }
+                if (instruction->detail->x86.operands[1].mem.disp != 0xc) {
+                    return false;
+                }
+                return true;
+                }, [&](cs_insn* instruction) {}, {}, {});
             isMalwareDetect = isPebLdrAccess;
             break;
-        } else {
-            // todo: fs:00 SEH访问
+        }
+        else {
+            //todo: fs:00 SEH访问
             //__debugbreak();
         }
     } while (false);
     if (isMalwareDetect) {
-        printf(
-            "malware function detected at address: 0x%llx by gs access "
-            "peb->ldr \n",
-            this->current_function_rva);
+        //这个rva只能说仅供参考，因为识别不准!
+        printf("malware function detected at address:0x%llx rva:0x%llx by fs access peb->ldr \n", this->current_function_rva + currentIns->address, this->current_function_rva);
         this->print_asm(currentIns);
     }
 }
 
-auto super_huoji_tracker::track_gs_access() -> void {
+auto super_huoji_tracker::track_gs_access() -> void
+{
     this->is_x32 ? this->track_gs_access_32_i() : this->track_gs_access_64_i();
 }
-auto functionAnalysis(
-    std::vector<std::shared_ptr<_functionDetail>> functionlist,
-    pe64* peFileObject) -> void {
+auto functionAnalysis(std::vector<std::shared_ptr<_functionDetail>> functionlist, pe64* peFileObject) -> void {
     double maxEntropy = -1.0;
     uint64_t maxEntropyAddress = 0;
 
     for (auto& func : functionlist) {
-        auto entropy =
-            calculateEntropy(reinterpret_cast<void*>(func.get()->start_address),
-                             func.get()->size);
+
+        auto entropy = calculateEntropy(reinterpret_cast<void*>(func.get()->start_address), func.get()->size);
 
         if (entropy > maxEntropy) {
             maxEntropy = entropy;
-            maxEntropyAddress =
-                func.get()->start_address -
-                reinterpret_cast<uint64_t>(peFileObject->get_buffer()->data());
+            maxEntropyAddress = func.get()->start_address - reinterpret_cast<uint64_t>(peFileObject->get_buffer()->data());
         }
-        auto tracker = new super_huoji_tracker(
-            func.get()->start_address, func.get()->size,
-            func.get()->start_address -
-                reinterpret_cast<uint64_t>(peFileObject->get_buffer()->data()),
-            peFileObject->is_32_pe());
+        auto tracker = new super_huoji_tracker(func.get()->start_address, func.get()->size, func.get()->start_address - reinterpret_cast<uint64_t>(peFileObject->get_buffer()->data()), peFileObject->is_32_pe());
         tracker->track_gs_access();
         delete tracker;
     }
     if (maxEntropy > 7.0f) {
-        printf(
-            "malware function detected at address: 0x%08x + 0x%llx = 0x%llx "
-            "entropy %f \n",
-            maxEntropyAddress, peFileObject->get_image_base(),
-            (peFileObject->get_image_base() + maxEntropyAddress), maxEntropy);
+        printf("malware function detected at address: 0x%08x + 0x%llx = 0x%llx entropy %f \n", maxEntropyAddress, peFileObject->get_image_base(), (peFileObject->get_image_base() + maxEntropyAddress), maxEntropy);
     }
 }
 
-int main() {
-    const std::string filePath = "z:\\huoji.bin";
+int main()
+{
+    const std::string filePath = "z:\\c5d2400f16c15e4a5bce60ccaf47bd341db23235a5ee073ebd3b3fd5e982ac72";
     pe64* peFileObject = NULL;
-    do {
+	do
+	{
         try {
             srand(time(NULL));
             peFileObject = new pe64(filePath);
-        } catch (std::runtime_error e) {
+        }
+        catch (std::runtime_error e) {
             std::cout << "Runtime error: " << e.what() << std::endl;
             break;
         }
@@ -485,6 +450,6 @@ int main() {
             functionAnalysis(functionlist, peFileObject);
         }
 
-    } while (false);
+	} while (false);
     return 0;
 }
