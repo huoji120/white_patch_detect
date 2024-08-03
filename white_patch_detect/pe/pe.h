@@ -14,6 +14,8 @@ public:
 
 	pe64(std::string binary_path);
 
+	bool is_32_pe();
+
 	bool delete_section(std::string section_name);
 
 	uint32_t align(uint32_t address, uint32_t alignment);

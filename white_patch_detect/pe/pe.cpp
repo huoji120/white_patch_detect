@@ -28,8 +28,8 @@ pe64::pe64(std::string binary_path) {
     PIMAGE_NT_HEADERS nt =
         reinterpret_cast<PIMAGE_NT_HEADERS>(temp_buffer.data() + dos->e_lfanew);
 
-    if (nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64)
-        throw std::runtime_error("huoji doesn't support 32bit binaries!");
+    //if (nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64)
+    //    throw std::runtime_error("huoji doesn't support 32bit binaries!");
 
     this->buffer.resize(nt->OptionalHeader.SizeOfImage);
 
@@ -46,6 +46,10 @@ pe64::pe64(std::string binary_path) {
                curr_section->SizeOfRawData);
     }
     this->buffer_not_relocated = temp_buffer;
+}
+
+bool pe64::is_32_pe() {
+    return get_nt()->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64;
 }
 bool pe64::delete_section(std::string section_name) {
     PIMAGE_SECTION_HEADER section = get_section(section_name);
